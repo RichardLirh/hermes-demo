@@ -13,6 +13,7 @@ CONFIG = str(Path.home() / '.kube/xiaozhi-sandbox-demo.yaml')
 CMD = [KUBE, '--kubeconfig', CONFIG, '-n', 'xiaozhi-demo']
 READY = Path.home() / '.config/xiaozhi-sandbox-demo/secrets/hermes-control-session.json'
 STOP = Path(os.environ['HERMES_STOP_FILE']) if os.environ.get('HERMES_STOP_FILE') else None
+SESSION_DEADLINE = float(os.environ.get('HERMES_SESSION_DEADLINE', '0'))
 
 
 def kubectl(*args):
@@ -77,7 +78,7 @@ def main():
     raw = subprocess.check_output([aliyun, 'cs', 'GET',
         '/k8s/c3c70a016529748d6b1d12b13f259d9ff/user_config',
         '--PrivateIpAddress', 'false', '--TemporaryDurationMinutes', '60',
-        '--region', 'cn-shenzhen', '--profile', 'xiaozhi-demo'], stderr=subprocess.PIPE)
+        '--region', 'cn-shenzhen', '--profile', 'xiaozhi-demo'], stderr=subprocess.PIPE, timeout=60)
     credentials = json.loads(raw)
     if not credentials.get('config'):
         raise RuntimeError('Aliyun did not return a temporary kubeconfig')
@@ -93,6 +94,8 @@ def main():
         deadline = time.monotonic() + 360
         pod = None
         while time.monotonic() < deadline:
+            if SESSION_DEADLINE and time.time() >= SESSION_DEADLINE:
+                raise TimeoutError('Confirmed mail session reached its active-time limit')
             if STOP and STOP.exists():
                 print('Cancellation received before browser readiness.', flush=True)
                 return
@@ -132,7 +135,12 @@ def main():
             if os.environ.get('HERMES_WORKFLOW') == 'mail163':
                 from mail163_server import serve
                 config = json.loads(Path(os.environ['HERMES_MAIL_CONFIG']).read_text(encoding='utf-8'))
-                serve('http://127.0.0.1:19222', pod, config, ready_file=READY, stop_file=STOP)
+                lifetime = 3300
+                if config.get('mode') == 'send_only':
+                    lifetime = min(1500, max(0, config['deadline_epoch'] - time.time()))
+                    if lifetime <= 0:
+                        raise TimeoutError('Confirmed mail session expired before browser readiness')
+                serve('http://127.0.0.1:19222', pod, config, ready_file=READY, stop_file=STOP, lifetime=lifetime)
             else:
                 from server import serve
                 serve('http://127.0.0.1:19222', pod, ready_file=READY, stop_file=STOP)

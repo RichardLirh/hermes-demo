@@ -10,6 +10,7 @@ import queue
 import re
 import secrets
 import threading
+import time
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -18,6 +19,7 @@ from urllib.parse import urlsplit
 from browser_bridge import BrowserBridge, Rejected
 from control import SessionControl
 from uuid import uuid4
+from mail163_contract import validate_snapshot
 
 
 def allowed_mail_url(url):
@@ -29,6 +31,10 @@ def allowed_mail_url(url):
 
 class MailBridge(BrowserBridge):
     def __init__(self, cdp, sandbox_id, config):
+        if config.get('mode') == 'send_only':
+            validate_snapshot(config['authorization'])
+            if config.get('scan_only') or 'scan_window' in config:
+                raise ValueError('仅发信任务不能同时请求扫描')
         self.config = config
         self.authenticated = False
         self.identity = None
@@ -81,10 +87,19 @@ class MailBridge(BrowserBridge):
         value = {'url': f'{parsed.scheme}://{parsed.netloc}{parsed.path}',
                  'title': self.page.title(), 'control': self.control.snapshot(),
                  'workflow': 'mail163', 'authenticated': self.authenticated,
-                 'identity': self.identity, 'scan_window': self.config['scan_window'],
+                 'identity': self.identity, 'mode': self.config.get('mode', 'send_and_scan'),
                  'phase': 'ready_for_mail_adapter' if self.authenticated else 'awaiting_login',
                  'send_state': self.send_state, 'report': self.mail_report,
                  'events': self.mail_events[-20:]}
+        if self.config.get('mode') == 'send_only':
+            value['confirmed_mail'] = {key: self.config['authorization'][key]
+                for key in ('subject', 'body', 'draft_id', 'version', 'content_hash')}
+            value['task_scope'] = '仅向当前登录账号本人发送已确认的邮件；不扫描邮箱，不读取附件。'
+            value['lifetime_minutes'] = 25
+        else:
+            value['scan_window'] = self.config['scan_window']
+            value['task_scope'] = '按照原任务时间窗处理邮件；结果以实际回执与覆盖范围为准。'
+            value['lifetime_minutes'] = 55
         if self.driver:
             value['hermes'] = self.driver.status()
         if screenshot:
@@ -107,7 +122,7 @@ class MailBridge(BrowserBridge):
             was_authenticated=self.authenticated
             self.identity,self.authenticated=address,True
             if not was_authenticated:
-                self.mail_events.append('人工登录已验证，保持同一浏览器会话；尚未发送邮件或完成扫描')
+                self.mail_events.append('人工登录已验证，保持同一浏览器会话；后续严格按已授权任务执行')
             return True
         except Exception:
             return False
@@ -199,7 +214,11 @@ class MailBridge(BrowserBridge):
 
     def mail_action(self, epoch, body):
         from mail163_adapter import handle
-        return self.call(lambda: self.control.operate('local-owner', epoch, 'AGENT', lambda:handle(self,body)))
+        def perform():
+            if self.config.get('mode') == 'send_only' and time.time() >= self.config.get('deadline_epoch', 0):
+                raise Rejected('本次确认任务已超时，禁止继续发送')
+            return self.control.operate('local-owner', epoch, 'AGENT', lambda:handle(self,body))
+        return self.call(perform)
 
     def start_mail(self, epoch):
         if not self.authenticated:
@@ -211,8 +230,11 @@ class MailBridge(BrowserBridge):
         control=self.control.snapshot()
         if control['mode']=='USER':
             control=self.transfer(epoch,'AGENT')
-        prompt='完成用户授权的163任务。先观察真实邮箱界面。时间窗：'+json.dumps(self.config['scan_window'],ensure_ascii=False)+'。仅给本人发送服务端固定联调邮件，之后扫描时间窗内邮件并总结，附覆盖范围和遗漏。'
-        if self.config.get('scan_only'):
+        if self.config.get('mode') == 'send_only':
+            prompt='执行用户已经复述确认的本人邮件。先observe，然后调用send_self一次。只能使用服务端锁定快照；不修改主题正文，不扫描，不读附件。根据真实回执结束；结果不确定不得重试。'
+        else:
+            prompt='完成用户授权的163任务。先观察真实邮箱界面。时间窗：'+json.dumps(self.config['scan_window'],ensure_ascii=False)+'。仅给本人发送服务端固定联调邮件，之后扫描时间窗内邮件并总结，附覆盖范围和遗漏。'
+        if self.config.get('scan_only') and self.config.get('mode') != 'send_only':
             prompt='这是仅扫描恢复任务。绝不发信，也不调用send_self。沿用原任务时间窗：'+json.dumps(self.config['scan_window'],ensure_ascii=False)+'。先observe然后scan_next，直到scan_complete才总结。保留原发送账本状态。'
         self.driver.start(prompt,control['epoch'])
         return {'started':True}
@@ -234,6 +256,8 @@ class MailBridge(BrowserBridge):
             self.control._check('local-owner', epoch, 'USER')
             if not self.authenticated or not allowed_mail_url(self.page.url):
                 raise Rejected('请先完成人工登录确认')
+            if self.config.get('mode') == 'send_only':
+                raise Rejected('仅发信模式不提供整页邮件内容检查')
             frames = []
             for index, frame in enumerate(self.page.frames):
                 if frame!=self.page.main_frame and not frame.frame_element().is_visible():
