@@ -1,0 +1,8 @@
+model:
+  default: qwen-plus
+  provider: custom
+  base_url: https://ws-u9a0dui6qfymyvz8.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+  context_length: 131072
+tools:
+  tool_search:
+    enabled: off

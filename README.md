@@ -27,8 +27,8 @@ Default ports bind to loopback inside the container:
 VNC passwords should be random; legacy VNC uses only the first 8 characters.
 Do not publish these ports directly on a public IP. Use an authenticated tunnel/gateway.
 NoVNC and raw CDP do not enforce the SessionControl handoff fence. The supplied
-control.py is a tested primitive; integration with a sole authenticated browser
-adapter remains a separate step. Auto-wake is a Sandbox template setting, not
+control.py is integrated with the sole authenticated Windows browser adapter in
+[hermes-control](hermes-control/README.md). Auto-wake is a Sandbox template setting, not
 an image setting.
 
 The Playwright runtime uses its default Chromium sandbox configuration and is
@@ -50,7 +50,8 @@ in-memory data. It saves a screenshot inside the container. These records are lo
 on release; export needed artifacts before deleting a sandbox.
 
 ACS agent-runtime injection and SandboxSet deployment are configured separately.
-This repository alone does not complete Hermes model integration, public gateway
-routing, or same-session agent/human takeover acceptance.
+Real Hermes + qwen-plus model integration and same-session handoff passed on ACS
+on 2026-10-07 (human-side actions automated). See [the Windows launcher and evidence](hermes-control/README.md).
+Public E2B browser routing and user-operated acceptance remain separate.
 
 Never commit API keys, registry passwords, kubeconfigs, or private Obsidian notes.
