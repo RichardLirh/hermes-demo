@@ -1,0 +1,26 @@
+name: Browser image
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Control unit tests
+        run: python -m unittest discover -s browser-runtime -p 'test_*.py' -v
+      - name: Build
+        run: docker build -t hermes-browser:demo-v1 browser-runtime
+      - name: Headed browser smoke test
+        run: |
+          docker run -d --name browser-smoke --shm-size=512m hermes-browser:demo-v1
+          docker exec browser-smoke python smoke_browser.py
+      - name: Logs and cleanup
+        if: always()
+        run: |
+          docker logs browser-smoke || true
+          docker rm -f browser-smoke || true

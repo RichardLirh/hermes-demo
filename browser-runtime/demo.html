@@ -1,0 +1,14 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8">
+<title>演示客户跟进</title>
+<style>body{font:18px system-ui;max-width:780px;margin:40px auto;padding:20px;background:#f4f7fc;color:#183047}section{padding:24px;background:white;border-radius:12px;margin:20px 0}label{display:block;margin:14px 0}input,textarea,button{font:inherit;padding:10px}textarea{width:90%;height:120px}button{cursor:pointer}#message{white-space:pre-wrap}</style>
+<h1>客户跟进演示</h1><p>仅使用虚构客户与演示账号，不连接真实业务系统。</p>
+<section><h2>1. 搜索客户</h2><label>客户名称 <input id="search" value="" autocomplete="off"></label><button id="find">搜索</button><p id="customer">尚未选择客户</p></section>
+<section><h2>2. 演示登录</h2><p>演示账号：demo / demo-password</p><label>账号 <input id="username" autocomplete="off"></label><label>密码 <input id="password" type="password" autocomplete="off"></label><button id="login">登录</button><p id="login-status">未登录</p></section>
+<section><h2>3. 跟进草稿</h2><label>跟进内容 <textarea id="draft"></textarea></label><p>Agent 应在点击提交前等待用户确认。</p><button id="submit">提交跟进</button><p id="message" role="status"></p></section>
+<script>
+let customer=null, operationId=crypto.randomUUID();
+async function api(path,data){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const v=await r.json();if(!r.ok)throw Error(v.error);return v;}
+document.querySelector('#find').onclick=()=>{const q=document.querySelector('#search').value.trim();customer=q.includes('演示')?'demo-customer-001':null;document.querySelector('#customer').textContent=customer?'演示客户 · 陈女士 · demo-customer-001':'没有匹配客户';};
+document.querySelector('#login').onclick=async()=>{try{await api('/api/login',{username:document.querySelector('#username').value,password:document.querySelector('#password').value});document.querySelector('#login-status').textContent='已登录：演示用户';}catch(e){document.querySelector('#login-status').textContent=e.message;}};
+document.querySelector('#submit').onclick=async()=>{try{const v=await api('/api/followups',{customerId:customer,text:document.querySelector('#draft').value,operationId});document.querySelector('#message').textContent='提交成功，记录编号：'+v.id;}catch(e){document.querySelector('#message').textContent=e.message;}};
+</script></html>
