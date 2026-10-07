@@ -12,7 +12,7 @@ from browser_bridge import BrowserBridge
 from hermes_driver import HermesDriver
 
 
-def serve(cdp, sandbox_id, port=18765, ready_file=None, lifetime=1800):
+def serve(cdp, sandbox_id, port=18765, ready_file=None, lifetime=1800, stop_file=None):
     bridge = BrowserBridge(cdp, sandbox_id)
     driver = HermesDriver(bridge)
     token = secrets.token_urlsafe(32)
@@ -86,7 +86,7 @@ def serve(cdp, sandbox_id, port=18765, ready_file=None, lifetime=1800):
                 elif self.path == '/action':
                     result = bridge.action('USER', epoch, body['action'], body.get('selector', ''), body.get('value', ''))
                 elif self.path == '/submit':
-                    result = bridge.approve_submit(epoch, body['draft'], body['operationId'])
+                    result = bridge.approve_submit(epoch, body['draft'], body['operationId'], body['customer'])
                 elif self.path == '/stop':
                     bridge.control._check('local-owner', epoch)
                     result = {'stopping': True}
@@ -103,10 +103,19 @@ def serve(cdp, sandbox_id, port=18765, ready_file=None, lifetime=1800):
     timer = threading.Timer(lifetime, httpd.shutdown)
     timer.daemon = True
     timer.start()
+    finished = threading.Event()
+    if stop_file:
+        def watch_stop():
+            while not finished.wait(.5):
+                if Path(stop_file).exists():
+                    httpd.shutdown()
+                    return
+        threading.Thread(target=watch_stop, daemon=True).start()
     print(f'Human control ready on {origin}; automatic cleanup after {lifetime // 60} minutes.', flush=True)
     try:
         httpd.serve_forever(poll_interval=.5)
     finally:
+        finished.set()
         timer.cancel()
         driver.interrupt()
         bridge.close()

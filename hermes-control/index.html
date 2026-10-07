@@ -16,7 +16,7 @@ $('run').onclick=()=>act(()=>post('/run',{prompt:$('prompt').value}));$('take').
 document.querySelector('[data-action=search]').onclick=()=>act(async()=>{await post('/action',{action:'fill',selector:'search',value:$('search').value});await post('/action',{action:'click',selector:'find'});delete $('search').dataset.dirty;});
 document.querySelector('[data-action=login]').onclick=()=>act(async()=>{await post('/action',{action:'fill',selector:'username',value:$('username').value});await post('/action',{action:'fill',selector:'password',value:$('password').value});await post('/action',{action:'click',selector:'login'});$('password').value='';delete $('username').dataset.dirty;});
 document.querySelector('[data-action=draft]').onclick=()=>act(async()=>{await post('/action',{action:'fill',selector:'draft',value:$('draft').value});delete $('draft').dataset.dirty;});
-$('submit').onclick=()=>{if(confirm('确认向虚构演示系统提交以下草稿？\n\n'+$('draft').value))act(()=>post('/submit',{draft:$('draft').value,operationId}));};
+$('submit').onclick=()=>{if(confirm('确认向虚构演示系统提交以下草稿？\n客户：'+state.browser.customer+'\n\n'+$('draft').value))act(()=>post('/submit',{draft:$('draft').value,customer:state.browser.customer,operationId}));};
 $('stop').onclick=()=>act(async()=>{await post('/stop');$('status').textContent='正在结束并释放…';});
 (async()=>{if(location.hash){let token=location.hash.slice(1);history.replaceState(null,'','/');await post('/auth',{token});}await refresh();setInterval(refresh,3000);})().catch(e=>$('error').textContent=e.message);
 </script></html>

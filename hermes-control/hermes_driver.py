@@ -36,7 +36,7 @@ class HermesDriver:
             config.write_text(Path(__file__).with_name('hermes-config.yaml').read_text(), encoding='utf-8')
         os.environ['HERMES_API_TIMEOUT'] = '90'
         os.environ['HERMES_API_CALL_STALE_TIMEOUT'] = '90'
-        sys.path.insert(0, str(ROOT / 'vendor' / 'hermes-pinned'))
+        sys.path.insert(0, os.environ.get('HERMES_VENDOR_PATH', str(ROOT / 'vendor' / 'hermes-pinned')))
         from run_agent import AIAgent
         from tools.registry import registry
         schema = {'name': 'acs_browser', 'description': 'Read or operate the same ACS demo browser. Human owns login and final submission.',

@@ -92,8 +92,8 @@ def main(bridge_only=False):
         state = sync()
         draft = state['browser']['fields']['draft']
         op = str(uuid4())
-        first = request('/submit', {'draft': draft, 'operationId': op})
-        second = request('/submit', {'draft': draft, 'operationId': op})
+        first = request('/submit', {'draft': draft, 'customer': state['browser']['customer'], 'operationId': op})
+        second = request('/submit', {'draft': draft, 'customer': state['browser']['customer'], 'operationId': op})
         assert first['receipt'] == second['receipt'] and 'followup-1' in first['receipt']
         report['checks']['explicitHumanSubmitAndDuplicateReceipt'] = True
         report['receipt'] = first['receipt']

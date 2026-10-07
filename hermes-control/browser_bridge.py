@@ -96,13 +96,15 @@ class BrowserBridge:
             return self._read()
         return self.call(lambda: self.control.operate('local-owner', epoch, actor, perform))
 
-    def approve_submit(self, epoch, expected_draft, operation_id):
+    def approve_submit(self, epoch, expected_draft, operation_id, expected_customer=None):
         # Only invoked by authenticated human HTTP endpoint, never a model tool.
         def perform():
             self.control._check('local-owner', epoch, 'USER')
             actual = self._read()
             if actual['fields']['draft'] != expected_draft:
                 raise Rejected('Draft changed: refresh and review it again')
+            if expected_customer is not None and actual['customer'] != expected_customer:
+                raise Rejected('Customer changed: refresh and review it again')
             draft = {'text': expected_draft, 'customer': actual['customer']}
             token = self.control.approve('local-owner', epoch, draft)
             def submit():

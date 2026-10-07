@@ -12,10 +12,64 @@ KUBE = str(Path.home() / 'AppData/Local/KubernetesCLI/kubectl.exe')
 CONFIG = str(Path.home() / '.kube/xiaozhi-sandbox-demo.yaml')
 CMD = [KUBE, '--kubeconfig', CONFIG, '-n', 'xiaozhi-demo']
 READY = Path.home() / '.config/xiaozhi-sandbox-demo/secrets/hermes-control-session.json'
+STOP = Path(os.environ['HERMES_STOP_FILE']) if os.environ.get('HERMES_STOP_FILE') else None
 
 
 def kubectl(*args):
-    return subprocess.check_output(CMD + list(args), text=True, encoding='utf-8', stderr=subprocess.PIPE)
+    return subprocess.check_output(CMD + list(args), text=True, encoding='utf-8', stderr=subprocess.PIPE, timeout=45)
+
+
+def related_resources(items, known=None):
+    known = set(known or ())
+    related = []
+    pending = list(items)
+    while pending:
+        found = []
+        for item in pending:
+            metadata = item['metadata']
+            owners = metadata.get('ownerReferences', [])
+            if (metadata.get('uid') in known or metadata['name'].startswith('demo-hermes-browser-') or
+                any(o.get('uid') in known or o.get('name', '').startswith('demo-hermes-browser') for o in owners)):
+                found.append(item)
+                known.add(metadata.get('uid'))
+        if not found:
+            break
+        related.extend(found)
+        pending = [item for item in pending if item not in found]
+    return related, known
+
+
+def cleanup(tunnel, created):
+    try:
+        try:
+            if tunnel and tunnel.poll() is None:
+                tunnel.terminate()
+                try:
+                    tunnel.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    tunnel.kill()
+                    tunnel.wait(timeout=5)
+        finally:
+            if created:
+                known = set()
+                try:
+                    before = json.loads(kubectl('get', 'pods,sandboxes,pvc', '-o', 'json'))['items']
+                    _, known = related_resources(before)
+                finally:
+                    # A failed inventory or tunnel shutdown must not skip scaling down.
+                    kubectl('scale', 'sandboxset/demo-hermes-browser', '--replicas=0')
+                for _ in range(60):
+                    items = json.loads(kubectl('get', 'pods,sandboxes,pvc', '-o', 'json'))['items']
+                    remaining, known = related_resources(items, known)
+                    template = json.loads(kubectl('get', 'sandboxset', 'demo-hermes-browser', '-o', 'json'))
+                    if not remaining and template['spec'].get('replicas') == 0:
+                        print('Cleanup verified: related Pods, Sandboxes and PVCs absent; template replicas=0.', flush=True)
+                        break
+                    time.sleep(2)
+                else:
+                    raise RuntimeError('Cleanup requested but cloud resource removal is not yet verified')
+    finally:
+        READY.unlink(missing_ok=True)
 
 
 def main():
@@ -39,6 +93,9 @@ def main():
         deadline = time.monotonic() + 360
         pod = None
         while time.monotonic() < deadline:
+            if STOP and STOP.exists():
+                print('Cancellation received before browser readiness.', flush=True)
+                return
             pods = json.loads(kubectl('get', 'pods', '-o', 'json'))['items']
             candidates = [p for p in pods if any(o.get('name') == 'demo-hermes-browser' for o in p['metadata'].get('ownerReferences', []))
                           or p['metadata']['name'].startswith('demo-hermes-browser-')]
@@ -73,22 +130,9 @@ def main():
             else:
                 raise TimeoutError('CDP tunnel not ready')
             from server import serve
-            serve('http://127.0.0.1:19222', pod, ready_file=READY)
+            serve('http://127.0.0.1:19222', pod, ready_file=READY, stop_file=STOP)
     finally:
-        if tunnel and tunnel.poll() is None:
-            tunnel.terminate()
-            tunnel.wait(timeout=10)
-        if created:
-            kubectl('scale', 'sandboxset/demo-hermes-browser', '--replicas=0')
-            for _ in range(60):
-                pods = json.loads(kubectl('get', 'pods', '-o', 'json'))['items']
-                if not any(p['metadata']['name'].startswith('demo-hermes-browser-') for p in pods):
-                    print('Cleanup verified: browser sandbox removed, template replicas=0.', flush=True)
-                    break
-                time.sleep(2)
-            else:
-                raise RuntimeError('Cleanup requested but pod removal is not yet verified')
-        READY.unlink(missing_ok=True)
+        cleanup(tunnel, created)
 
 
 if __name__ == '__main__':
