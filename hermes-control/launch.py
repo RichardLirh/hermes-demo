@@ -129,8 +129,13 @@ def main():
                     time.sleep(1)
             else:
                 raise TimeoutError('CDP tunnel not ready')
-            from server import serve
-            serve('http://127.0.0.1:19222', pod, ready_file=READY, stop_file=STOP)
+            if os.environ.get('HERMES_WORKFLOW') == 'mail163':
+                from mail163_server import serve
+                config = json.loads(Path(os.environ['HERMES_MAIL_CONFIG']).read_text(encoding='utf-8'))
+                serve('http://127.0.0.1:19222', pod, config, ready_file=READY, stop_file=STOP)
+            else:
+                from server import serve
+                serve('http://127.0.0.1:19222', pod, ready_file=READY, stop_file=STOP)
     finally:
         cleanup(tunnel, created)
 

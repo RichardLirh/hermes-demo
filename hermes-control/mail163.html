@@ -1,0 +1,28 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>163 邮箱 · 云端会话</title>
+<style>body{font:16px system-ui;margin:20px;color:#172337;background:#f6f7fa}main{max-width:1280px;margin:auto}section{background:white;padding:18px;border-radius:14px;margin-bottom:16px}h1{font-size:24px}button,input{font:inherit;padding:12px;margin:5px 4px 5px 0}button{cursor:pointer;background:#172337;color:white;border:0;border-radius:8px}input{box-sizing:border-box;width:min(100%,540px);border:1px solid #bec6d0;border-radius:8px}img{width:100%;display:block;cursor:crosshair;border:1px solid #ddd;touch-action:manipulation}#error{color:#b42318}small{color:#536579}#status{overflow-wrap:anywhere}</style>
+<main><h1>163 邮箱 · 同一云端浏览器</h1><p id="status">正在连接…</p><button id="takeover">人工接管</button><p id="error"></p>
+<section id="loginFormPanel"><h2>登录163邮箱</h2><form id="loginForm" autocomplete="off"><label>邮箱账号<br><input id="loginAddress" type="email" required autocomplete="off" placeholder="你的账号@163.com"></label><br><label>密码<br><input id="loginPassword" type="password" required autocomplete="off" placeholder="输入邮箱密码"></label><br><button id="loginButton" type="submit">登录</button></form><p id="loginNotice">账号和密码直接填入当前云端浏览器的网易登录框。密码不保存、不进入模型记录。</p></section>
+<section><h2>原站画面 · 扫码或验证码</h2><p>如网易要求扫码或验证，请在此自行完成。可以直接拖动画面中的滑块。</p><img id="screen" alt="云端浏览器画面，可点击"><small>密码框在截图中遮挡；画面每 2 秒刷新。</small>
+<details><summary>需要输入验证码或操作原站</summary>
+<div><input id="typing" type="password" autocomplete="off" placeholder="输入到刚刚选中的云端输入框"><button id="type">键入</button></div>
+<div><button data-key="Tab">Tab</button><button data-key="Enter">回车</button><button data-key="Control+A">全选</button><button data-key="Backspace">退格</button><button data-scroll="-500">向上滚动</button><button data-scroll="500">向下滚动</button></div></details></section>
+<section><h2>任务范围</h2><p>登录成功后会自动核对当前账号。任务只向该账号本人发送一封固定联调测试邮件，整理创建任务前 72 小时的邮件。附件内容不读取；扫描结果会注明实际覆盖范围。</p><details><summary>扫码登录后尚未自动识别</summary><p>请展开原站顶部完整账号，填入本人邮箱继续。</p><input id="address" type="email" autocomplete="off" placeholder="本人账号@163.com"><button id="continue">登录完成，继续任务</button></details></section>
+<section><button id="stop">结束并释放沙箱</button><small>此操作结束当前任务与云端会话。30 分钟自动回收。</small></section></main>
+<script>
+let state,busy=false;const $=id=>document.getElementById(id);
+async function post(path,body={}){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({epoch:state?.control.epoch,...body})});const data=await r.json();if(!r.ok)throw Error(data.error);return data;}
+async function refresh(){if(busy||dragPoints)return;try{const r=await fetch('/state');const data=await r.json();if(!r.ok)throw Error(data.error);state=data.browser;$('screen').src='data:image/png;base64,'+state.image;$('status').textContent=state.hermes?.busy?'Hermes 正在操作邮箱；人工操作前请接管':state.authenticated?'登录已验证；同一云端会话保持中':'等待你登录163邮箱';$('takeover').disabled=state.control.mode==='USER';$('loginFormPanel').hidden=state.authenticated;}catch(e){$('error').textContent=e.message;}}
+async function act(fn){busy=true;try{await fn();$('error').textContent='';}catch(e){$('error').textContent=e.message;}finally{busy=false;await refresh();}}
+let dragPoints=null;function point(e){const r=$('screen').getBoundingClientRect();return{x:(e.clientX-r.left)*$('screen').naturalWidth/r.width,y:(e.clientY-r.top)*$('screen').naturalHeight/r.height};}
+$('screen').style.touchAction='none';$('screen').onpointerdown=e=>{if(state?.control.mode!=='USER')return;dragPoints=[point(e)];e.target.setPointerCapture(e.pointerId);};
+$('screen').onpointermove=e=>{if(dragPoints&&dragPoints.length<149)dragPoints.push(point(e));};
+$('screen').onpointerup=e=>{if(!dragPoints)return;const path=dragPoints;path.push(point(e));dragPoints=null;const a=path[0],b=path[path.length-1];act(()=>Math.hypot(a.x-b.x,a.y-b.y)<5?post('/human',{action:'click',...a}):post('/human',{action:'drag',points:path}));};
+$('screen').onpointercancel=()=>{dragPoints=null;};$('takeover').onclick=()=>act(()=>post('/takeover'));
+$('type').onclick=()=>act(async()=>{const text=$('typing').value;$('typing').value='';await post('/human',{action:'type',text});});
+document.querySelectorAll('[data-key]').forEach(e=>e.onclick=()=>act(()=>post('/human',{action:'key',key:e.dataset.key})));
+document.querySelectorAll('[data-scroll]').forEach(e=>e.onclick=()=>act(()=>post('/human',{action:'scroll',dy:Number(e.dataset.scroll)})));
+$('continue').onclick=()=>act(()=>post('/continue',{address:$('address').value}));
+$('loginForm').onsubmit=e=>{e.preventDefault();const address=$('loginAddress').value;let password=$('loginPassword').value;$('loginPassword').value='';$('loginButton').disabled=true;act(async()=>{try{const response=await post('/login',{address,password});$('loginNotice').textContent=response.message;$('address').value=address;}finally{password='';$('loginButton').disabled=false;}});};
+$('stop').onclick=()=>act(()=>post('/stop'));
+(async()=>{if(location.hash){const token=location.hash.slice(1);history.replaceState(null,'','/');await post('/auth',{token});}await refresh();setInterval(refresh,2000);})().catch(e=>$('error').textContent=e.message);
+</script></html>
